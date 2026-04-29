@@ -1,0 +1,16 @@
+# Build artifacts
+build/
+
+# Clangd index cache
+.cache/
+
+# Qoder IDE settings (keep local)
+.qoder/
+
+# Generated files
+compile_commands.json
+.gdb_history
+
+# OS files
+.DS_Store
+Thumbs.db
