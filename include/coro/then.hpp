@@ -128,7 +128,7 @@ public:
 
     op_state(S s, F f, R&& r)
       : func_(std::move(f)),
-        outer_receiver_(static_cast<R&&>(r)),
+        outer_receiver_(std::forward<R>(r)),
         inner_op_(coro::connect(std::move(s), then_receiver{this})) {}
 
     void start() noexcept {
@@ -144,7 +144,7 @@ public:
                                         : receiver_of<R, value_type>)
   auto connect(R&& r) && {
     return op_state<std::remove_cvref_t<R>>(
-        std::move(sender_), std::move(func_), static_cast<R&&>(r));
+        std::move(sender_), std::move(func_), std::forward<R>(r));
   }
 };
 

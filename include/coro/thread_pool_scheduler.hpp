@@ -64,7 +64,7 @@ public:
       std::shared_ptr<pool_state> pool_;
 
       op_state(R&& r, std::shared_ptr<pool_state> pool)
-        : receiver_(static_cast<R&&>(r)), pool_(std::move(pool)) {}
+        : receiver_(std::forward<R>(r)), pool_(std::move(pool)) {}
 
       void start() noexcept;
     };
@@ -72,13 +72,13 @@ public:
     template<typename R>
       requires receiver_of<R>
     auto connect(R&& r) && {
-      return op_state<std::remove_cvref_t<R>>(static_cast<R&&>(r), pool_);
+      return op_state<std::remove_cvref_t<R>>(std::forward<R>(r), pool_);
     }
 
     template<typename R>
       requires receiver_of<R>
     auto connect(R&& r) const& {
-      return op_state<std::remove_cvref_t<R>>(static_cast<R&&>(r), pool_);
+      return op_state<std::remove_cvref_t<R>>(std::forward<R>(r), pool_);
     }
 
   private:

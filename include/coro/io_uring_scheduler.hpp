@@ -215,7 +215,7 @@ inline void io_uring_prep_nop(struct io_uring_sqe* sqe) {
 }
 
 inline void io_uring_prep_read(struct io_uring_sqe* sqe, int fd, void* buf,
-                                unsigned nbytes, __u64 offset) {
+                               unsigned nbytes, __u64 offset) {
   sqe->opcode = IORING_OP_READ;
   sqe->flags = 0;
   sqe->ioprio = 0;
@@ -228,8 +228,8 @@ inline void io_uring_prep_read(struct io_uring_sqe* sqe, int fd, void* buf,
 }
 
 inline void io_uring_prep_write(struct io_uring_sqe* sqe, int fd,
-                                 const void* buf, unsigned nbytes,
-                                 __u64 offset) {
+                                const void* buf, unsigned nbytes,
+                                __u64 offset) {
   sqe->opcode = IORING_OP_WRITE;
   sqe->flags = 0;
   sqe->ioprio = 0;
@@ -242,7 +242,7 @@ inline void io_uring_prep_write(struct io_uring_sqe* sqe, int fd,
 }
 
 inline void io_uring_prep_timeout(struct io_uring_sqe* sqe,
-                                   struct __kernel_timespec* ts) {
+                                  struct __kernel_timespec* ts) {
   sqe->opcode = IORING_OP_TIMEOUT;
   sqe->flags = 0;
   sqe->ioprio = 0;
@@ -380,7 +380,7 @@ public:
       std::shared_ptr<ring_state> ring_;
 
       op_handle(R&& r, std::shared_ptr<ring_state> ring)
-        : receiver_(static_cast<R&&>(r)), ring_(std::move(ring)) {}
+        : receiver_(std::forward<R>(r)), ring_(std::move(ring)) {}
 
       void start() noexcept {
         auto* op = new op_state<R>(std::addressof(receiver_), ring_);
@@ -391,13 +391,13 @@ public:
     template<typename R>
       requires receiver_of<R>
     auto connect(R&& r) && {
-      return op_handle<std::remove_cvref_t<R>>(static_cast<R&&>(r), ring_);
+      return op_handle<std::remove_cvref_t<R>>(std::forward<R>(r), ring_);
     }
 
     template<typename R>
       requires receiver_of<R>
     auto connect(R&& r) const& {
-      return op_handle<std::remove_cvref_t<R>>(static_cast<R&&>(r), ring_);
+      return op_handle<std::remove_cvref_t<R>>(std::forward<R>(r), ring_);
     }
 
   private:
@@ -432,7 +432,10 @@ public:
 
       op_state(R* r, std::shared_ptr<ring_state> ring, int fd, void* buf,
                unsigned nbytes)
-        : receiver_(r), ring_(std::move(ring)), fd_(fd), buf_(buf),
+        : receiver_(r),
+          ring_(std::move(ring)),
+          fd_(fd),
+          buf_(buf),
           nbytes_(nbytes) {}
 
       void submit() noexcept {
@@ -475,8 +478,11 @@ public:
 
       op_handle(R&& r, std::shared_ptr<ring_state> ring, int fd, void* buf,
                 unsigned nbytes)
-        : receiver_(static_cast<R&&>(r)), ring_(std::move(ring)), fd_(fd),
-          buf_(buf), nbytes_(nbytes) {}
+        : receiver_(std::forward<R>(r)),
+          ring_(std::move(ring)),
+          fd_(fd),
+          buf_(buf),
+          nbytes_(nbytes) {}
 
       void start() noexcept {
         auto* op = new op_state<R>(std::addressof(receiver_), ring_, fd_, buf_,
@@ -488,14 +494,14 @@ public:
     template<typename R>
       requires receiver_of<R, std::size_t>
     auto connect(R&& r) && {
-      return op_handle<std::remove_cvref_t<R>>(static_cast<R&&>(r), ring_, fd_,
+      return op_handle<std::remove_cvref_t<R>>(std::forward<R>(r), ring_, fd_,
                                                buf_, nbytes_);
     }
 
     template<typename R>
       requires receiver_of<R, std::size_t>
     auto connect(R&& r) const& {
-      return op_handle<std::remove_cvref_t<R>>(static_cast<R&&>(r), ring_, fd_,
+      return op_handle<std::remove_cvref_t<R>>(std::forward<R>(r), ring_, fd_,
                                                buf_, nbytes_);
     }
 
@@ -534,7 +540,10 @@ public:
 
       op_state(R* r, std::shared_ptr<ring_state> ring, int fd, const void* buf,
                unsigned nbytes)
-        : receiver_(r), ring_(std::move(ring)), fd_(fd), buf_(buf),
+        : receiver_(r),
+          ring_(std::move(ring)),
+          fd_(fd),
+          buf_(buf),
           nbytes_(nbytes) {}
 
       void submit() noexcept {
@@ -577,8 +586,11 @@ public:
 
       op_handle(R&& r, std::shared_ptr<ring_state> ring, int fd,
                 const void* buf, unsigned nbytes)
-        : receiver_(static_cast<R&&>(r)), ring_(std::move(ring)), fd_(fd),
-          buf_(buf), nbytes_(nbytes) {}
+        : receiver_(std::forward<R>(r)),
+          ring_(std::move(ring)),
+          fd_(fd),
+          buf_(buf),
+          nbytes_(nbytes) {}
 
       void start() noexcept {
         auto* op = new op_state<R>(std::addressof(receiver_), ring_, fd_, buf_,
@@ -590,14 +602,14 @@ public:
     template<typename R>
       requires receiver_of<R, std::size_t>
     auto connect(R&& r) && {
-      return op_handle<std::remove_cvref_t<R>>(static_cast<R&&>(r), ring_, fd_,
+      return op_handle<std::remove_cvref_t<R>>(std::forward<R>(r), ring_, fd_,
                                                buf_, nbytes_);
     }
 
     template<typename R>
       requires receiver_of<R, std::size_t>
     auto connect(R&& r) const& {
-      return op_handle<std::remove_cvref_t<R>>(static_cast<R&&>(r), ring_, fd_,
+      return op_handle<std::remove_cvref_t<R>>(std::forward<R>(r), ring_, fd_,
                                                buf_, nbytes_);
     }
 
@@ -674,11 +686,10 @@ public:
 
       op_handle(R&& r, std::shared_ptr<ring_state> ring,
                 struct __kernel_timespec ts)
-        : receiver_(static_cast<R&&>(r)), ring_(std::move(ring)), ts_(ts) {}
+        : receiver_(std::forward<R>(r)), ring_(std::move(ring)), ts_(ts) {}
 
       void start() noexcept {
-        auto* op =
-            new op_state<R>(std::addressof(receiver_), ring_, ts_);
+        auto* op = new op_state<R>(std::addressof(receiver_), ring_, ts_);
         op->submit();
       }
     };
@@ -686,15 +697,13 @@ public:
     template<typename R>
       requires receiver_of<R>
     auto connect(R&& r) && {
-      return op_handle<std::remove_cvref_t<R>>(static_cast<R&&>(r), ring_,
-                                               ts_);
+      return op_handle<std::remove_cvref_t<R>>(std::forward<R>(r), ring_, ts_);
     }
 
     template<typename R>
       requires receiver_of<R>
     auto connect(R&& r) const& {
-      return op_handle<std::remove_cvref_t<R>>(static_cast<R&&>(r), ring_,
-                                               ts_);
+      return op_handle<std::remove_cvref_t<R>>(std::forward<R>(r), ring_, ts_);
     }
 
   private:
@@ -710,10 +719,9 @@ public:
       -> timeout_sender {
     auto secs = std::chrono::duration_cast<std::chrono::seconds>(dur);
     auto nsecs = dur - secs;
-    struct __kernel_timespec ts {
-      .tv_sec = static_cast<long long>(secs.count()),
-      .tv_nsec = static_cast<long long>(nsecs.count())
-    };
+    struct __kernel_timespec ts{.tv_sec = static_cast<long long>(secs.count()),
+                                .tv_nsec =
+                                    static_cast<long long>(nsecs.count())};
     return timeout_sender(state_, ts);
   }
 

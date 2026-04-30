@@ -138,7 +138,7 @@ public:
     sub_ops_storage sub_ops_;
 
     op_state(R&& r, when_all_sender& sender)
-      : receiver_(static_cast<R&&>(r)),
+      : receiver_(std::forward<R>(r)),
         sub_ops_(make_sub_ops(sender, std::make_index_sequence<N>{})) {}
 
     void start() noexcept {
@@ -193,7 +193,7 @@ public:
   template<typename R>
     requires receiver_of<R, value_type>
   auto connect(R&& r) && {
-    return op_state<std::remove_cvref_t<R>>(static_cast<R&&>(r), *this);
+    return op_state<std::remove_cvref_t<R>>(std::forward<R>(r), *this);
   }
 };
 

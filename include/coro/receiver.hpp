@@ -42,8 +42,8 @@ struct set_value_t {
       static_cast<R&&>(r).set_value(static_cast<Args&&>(args)...);
     }
   void operator()(R&& r, Args&&... args) const noexcept(
-      noexcept(static_cast<R&&>(r).set_value(static_cast<Args&&>(args)...))) {
-    static_cast<R&&>(r).set_value(static_cast<Args&&>(args)...);
+      noexcept(std::forward<R>(r).set_value(std::forward<Args>(args)...))) {
+    std::forward<R>(r).set_value(std::forward<Args>(args)...);
   }
 };
 
@@ -63,8 +63,8 @@ struct set_error_t {
       static_cast<R&&>(r).set_error(static_cast<E&&>(e));
     }
   void operator()(R&& r, E&& e) const
-      noexcept(noexcept(static_cast<R&&>(r).set_error(static_cast<E&&>(e)))) {
-    static_cast<R&&>(r).set_error(static_cast<E&&>(e));
+      noexcept(noexcept(std::forward<R>(r).set_error(std::forward<E>(e)))) {
+    std::forward<R>(r).set_error(std::forward<E>(e));
   }
 };
 
@@ -82,8 +82,8 @@ struct set_stopped_t {
   template<typename R>
     requires requires(R&& r) { static_cast<R&&>(r).set_stopped(); }
   void operator()(R&& r) const
-      noexcept(noexcept(static_cast<R&&>(r).set_stopped())) {
-    static_cast<R&&>(r).set_stopped();
+      noexcept(noexcept(std::forward<R>(r).set_stopped())) {
+    std::forward<R>(r).set_stopped();
   }
 };
 

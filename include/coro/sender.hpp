@@ -56,9 +56,9 @@ struct connect_t {
       static_cast<S&&>(s).connect(static_cast<R&&>(r));
     }
   auto operator()(S&& s, R&& r) const
-      noexcept(noexcept(static_cast<S&&>(s).connect(static_cast<R&&>(r))))
-          -> decltype(static_cast<S&&>(s).connect(static_cast<R&&>(r))) {
-    return static_cast<S&&>(s).connect(static_cast<R&&>(r));
+      noexcept(noexcept(std::forward<S>(s).connect(std::forward<R>(r))))
+          -> decltype(std::forward<S>(s).connect(std::forward<R>(r))) {
+    return std::forward<S>(s).connect(std::forward<R>(r));
   }
 };
 

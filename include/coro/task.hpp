@@ -262,7 +262,7 @@ public:
     requires(std::is_void_v<T> ? receiver_of<R> : receiver_of<R, T>)
   auto connect(R&& r) && {
     return op_state<std::remove_cvref_t<R>>(std::exchange(coro_, {}),
-                                            static_cast<R&&>(r));
+                                            std::forward<R>(r));
   }
 
   // -- Utility ------------------------------------------------------------
@@ -286,7 +286,7 @@ private:
     R receiver_;
 
     op_state(std::coroutine_handle<promise_type> h, R&& r)
-      : handle_(h), receiver_(static_cast<R&&>(r)) {}
+      : handle_(h), receiver_(std::forward<R>(r)) {}
 
     static void notify(void* ctx, promise_type& p) noexcept {
       auto& self = *static_cast<op_state*>(ctx);
