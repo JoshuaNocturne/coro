@@ -34,6 +34,7 @@ struct then_result<F, void> {
 /// receiver_ member that has a parent_ member, fix it.  Then recurse
 /// into the inner op_state's own inner_op_ (for chained then).
 template<typename Op, typename Parent>
+  requires requires(Op& o, Parent* p) { o.receiver_.parent_ = p; }
 void fix_then_parent(Op& op, Parent* p) {
   op.receiver_.parent_ = p;
 }
@@ -61,7 +62,7 @@ public:
   // input_value_t
   using value_type = typename detail::then_result<F, input_value_t>::type;
 
-  then_sender(S&& s, F f) : sender_(static_cast<S&&>(s)), func_(std::move(f)) {}
+  then_sender(S&& s, F f) : sender_(std::forward<S>(s)), func_(std::move(f)) {}
 
   // -- connect -----------------------------------------------------------
 
@@ -78,10 +79,10 @@ public:
       void set_value(V&& v) {
         try {
           if constexpr (std::is_void_v<value_type>) {
-            std::invoke(parent_->func_, static_cast<V&&>(v));
+            std::invoke(parent_->func_, std::forward<V>(v));
             coro::set_value(std::move(parent_->outer_receiver_));
           } else {
-            auto result = std::invoke(parent_->func_, static_cast<V&&>(v));
+            auto result = std::invoke(parent_->func_, std::forward<V>(v));
             coro::set_value(std::move(parent_->outer_receiver_),
                             std::move(result));
           }
@@ -134,7 +135,8 @@ public:
     void start() noexcept {
       // After a potential move of this op_state, the then_receiver inside
       // inner_op_ may still hold a dangling parent_ pointer.  Fix it.
-      detail::fix_then_parent(inner_op_, this);
+      using detail::fix_then_parent;
+      fix_then_parent(inner_op_, this);
       coro::start(inner_op_);
     }
   };
@@ -158,14 +160,14 @@ struct then_fn {
 
   template<typename S>
   friend auto operator|(S&& s, then_fn&& self) {
-    return then_sender<std::remove_cvref_t<S>, F>(static_cast<S&&>(s),
+    return then_sender<std::remove_cvref_t<S>, F>(std::forward<S>(s),
                                                   std::move(self.func));
   }
 };
 
 template<typename F>
 auto then(F&& f) {
-  return then_fn<std::remove_cvref_t<F>>{static_cast<F&&>(f)};
+  return then_fn<std::remove_cvref_t<F>>{std::forward<F>(f)};
 }
 
 } // namespace coro

@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <exception>
+#include <optional>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -37,7 +38,7 @@ public:
     if (op_.error_flag_.load(std::memory_order_acquire)) {
       return;
     }
-    std::get<Index>(op_.results_).emplace(static_cast<V&&>(v));
+    std::get<Index>(op_.results_).emplace(std::forward<V>(v));
     if (op_.remaining_.fetch_sub(1) == 1) {
       op_.on_complete();
     }
@@ -89,7 +90,7 @@ public:
   using value_type = std::tuple<sender_value_t<Senders>...>;
 
   explicit when_all_sender(Senders&&... s)
-    : senders_(static_cast<Senders&&>(s)...) {}
+    : senders_(std::forward<Senders>(s)...) {}
 
   // -- connect -----------------------------------------------------------
 
@@ -203,7 +204,7 @@ public:
 
 template<typename... Senders>
 auto when_all(Senders&&... senders) {
-  return when_all_sender<Senders...>(static_cast<Senders&&>(senders)...);
+  return when_all_sender<Senders...>(std::forward<Senders>(senders)...);
 }
 
 } // namespace coro

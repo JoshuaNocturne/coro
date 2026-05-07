@@ -119,7 +119,7 @@ struct promise_return_base : promise_result_storage<T> {
   template<typename U>
     requires std::constructible_from<T, U&&>
   void return_value(U&& v) noexcept(std::is_nothrow_constructible_v<T, U&&>) {
-    emplace_value(static_cast<U&&>(v));
+    emplace_value(std::forward<U>(v));
   }
 };
 

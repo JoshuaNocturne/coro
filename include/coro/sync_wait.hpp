@@ -52,7 +52,7 @@ public:
   void set_value(Args&&... args) {
     auto lock = std::lock_guard(state_->mtx);
     if constexpr (sizeof...(Args) == 1) {
-      state_->value.emplace(static_cast<Args&&>(args)...);
+      state_->value.emplace(std::forward<Args>(args)...);
     } else {
       state_->value.emplace(); // void represented as monostate or similar
     }
@@ -132,7 +132,7 @@ auto sync_wait(S&& s) -> sender_value_t<S> {
   state_t st;
   auto recv = detail::sync_wait_receiver<T>(&st);
 
-  auto op = coro::connect(static_cast<S&&>(s), std::move(recv));
+  auto op = coro::connect(std::forward<S>(s), std::move(recv));
   coro::start(op);
 
   auto lock = std::unique_lock(st.mtx);

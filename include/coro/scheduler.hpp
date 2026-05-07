@@ -23,9 +23,9 @@ struct schedule_t {
   template<typename S>
     requires requires(S&& s) { static_cast<S&&>(s).schedule(); }
   auto operator()(S&& s) const
-      noexcept(noexcept(static_cast<S&&>(s).schedule()))
-          -> decltype(static_cast<S&&>(s).schedule()) {
-    return static_cast<S&&>(s).schedule();
+      noexcept(noexcept(std::forward<S>(s).schedule()))
+          -> decltype(std::forward<S>(s).schedule()) {
+    return std::forward<S>(s).schedule();
   }
 };
 
