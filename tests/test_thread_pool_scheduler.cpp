@@ -198,3 +198,129 @@ TEST_CASE("thread_pool_scheduler runs coroutines on worker threads",
   auto main_id = std::this_thread::get_id();
   REQUIRE(coro_thread_id != main_id);
 }
+
+// ---------------------------------------------------------------------------
+//  P2300 style: co_await schedule(pool) inside the coroutine
+// ---------------------------------------------------------------------------
+
+task<int> compute_on_pool(thread_pool_scheduler& pool) {
+  co_await pool.schedule();
+  co_return 42;
+}
+
+task<int> compute_on_pool_with_arg(thread_pool_scheduler& pool, int x) {
+  co_await pool.schedule();
+  co_return x * 10;
+}
+
+task<void> void_task_on_pool(thread_pool_scheduler& pool,
+                             std::atomic<bool>& flag) {
+  co_await pool.schedule();
+  flag.store(true);
+}
+
+task<std::thread::id> get_thread_id_on_pool(thread_pool_scheduler& pool) {
+  co_await pool.schedule();
+  co_return std::this_thread::get_id();
+}
+
+task<std::pair<std::thread::id, std::thread::id>>
+thread_ids_around_await(thread_pool_scheduler& pool) {
+  auto before = std::this_thread::get_id();
+  co_await pool.schedule();
+  auto after = std::this_thread::get_id();
+  co_return std::make_pair(before, after);
+}
+
+task<std::vector<std::thread::id>>
+nested_thread_ids(thread_pool_scheduler& pool) {
+  std::vector<std::thread::id> ids;
+  ids.push_back(std::this_thread::get_id());
+  co_await pool.schedule();
+  ids.push_back(std::this_thread::get_id());
+  co_await pool.schedule();
+  ids.push_back(std::this_thread::get_id());
+  co_return ids;
+}
+
+task<int> nested_await_on_pool(thread_pool_scheduler& pool) {
+  co_await pool.schedule();
+  int a = co_await compute_on_pool_with_arg(pool, 5);
+  int b = co_await compute_on_pool_with_arg(pool, 3);
+  co_return a + b;
+}
+
+task<int> throwing_task_on_pool(thread_pool_scheduler& pool) {
+  co_await pool.schedule();
+  throw std::runtime_error("pool coroutine error");
+  co_return 0;
+}
+
+TEST_CASE("P2300 style: co_await schedule(pool) runs coroutine on pool",
+          "[scheduler][thread_pool][p2300]") {
+  thread_pool_scheduler pool(2);
+  auto result = sync_wait(compute_on_pool(pool));
+  REQUIRE(result == 42);
+}
+
+TEST_CASE("P2300 style: coroutine with argument",
+          "[scheduler][thread_pool][p2300]") {
+  thread_pool_scheduler pool(2);
+  auto result = sync_wait(compute_on_pool_with_arg(pool, 7));
+  REQUIRE(result == 70);
+}
+
+TEST_CASE("P2300 style: void task on pool", "[scheduler][thread_pool][p2300]") {
+  thread_pool_scheduler pool(2);
+  std::atomic<bool> flag{false};
+  sync_wait(void_task_on_pool(pool, flag));
+  REQUIRE(flag.load());
+}
+
+TEST_CASE("P2300 style: coroutine actually runs on worker thread",
+          "[scheduler][thread_pool][p2300]") {
+  thread_pool_scheduler pool(2);
+  auto main_id = std::this_thread::get_id();
+  auto coro_thread_id = sync_wait(get_thread_id_on_pool(pool));
+  REQUIRE(coro_thread_id != main_id);
+}
+
+TEST_CASE("P2300 style: co_await schedule captures thread IDs",
+          "[scheduler][thread_pool][p2300]") {
+  thread_pool_scheduler pool(4);
+  auto main_id = std::this_thread::get_id();
+
+  auto [before, after] = sync_wait(thread_ids_around_await(pool));
+  REQUIRE(before == main_id);
+  REQUIRE(after != main_id);
+
+  auto ids = sync_wait(nested_thread_ids(pool));
+  REQUIRE(ids.size() == 3);
+  REQUIRE(ids[0] == main_id);
+  REQUIRE(ids[1] != main_id);
+  REQUIRE(ids[2] != main_id);
+}
+
+TEST_CASE("P2300 style: multiple coroutines on pool with when_all",
+          "[scheduler][thread_pool][p2300]") {
+  thread_pool_scheduler pool(4);
+  auto [a, b, c] = sync_wait(when_all(compute_on_pool_with_arg(pool, 1),
+                                      compute_on_pool_with_arg(pool, 2),
+                                      compute_on_pool_with_arg(pool, 3)));
+  REQUIRE(a == 10);
+  REQUIRE(b == 20);
+  REQUIRE(c == 30);
+}
+
+TEST_CASE("P2300 style: nested co_await schedule transfers between threads",
+          "[scheduler][thread_pool][p2300]") {
+  thread_pool_scheduler pool(2);
+  auto result = sync_wait(nested_await_on_pool(pool));
+  REQUIRE(result == 80);
+}
+
+TEST_CASE("P2300 style: exception propagates from pool coroutine",
+          "[scheduler][thread_pool][p2300]") {
+  thread_pool_scheduler pool(2);
+  REQUIRE_THROWS_AS(sync_wait(throwing_task_on_pool(pool)), std::runtime_error);
+}
