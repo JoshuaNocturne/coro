@@ -41,6 +41,16 @@ public:
     auto connect(R&& r) const& {
       return op_state<std::remove_cvref_t<R>>(std::forward<R>(r));
     }
+
+    // Custom co_await: synchronous completion, no suspension.
+    auto operator co_await() && noexcept {
+      struct awaiter {
+        bool await_ready() const noexcept { return true; }
+        void await_suspend(std::coroutine_handle<>) const noexcept {}
+        void await_resume() const noexcept {}
+      };
+      return awaiter{};
+    }
   };
 
   auto schedule() const noexcept -> sender {
