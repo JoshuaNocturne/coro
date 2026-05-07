@@ -15,5 +15,6 @@
 #include <coro/sync_wait.hpp>
 #include <coro/task.hpp>
 #include <coro/then.hpp>
+#include <coro/let_value.hpp>
 #include <coro/thread_pool_scheduler.hpp>
 #include <coro/when_all.hpp>
