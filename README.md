@@ -132,3 +132,7 @@ tests/
 ├── test_thread_pool_scheduler.cpp  ── thread pool scheduler
 └── test_io_uring_scheduler.cpp     ── io_uring scheduler + real I/O tests
 ```
+
+## Documentation
+
+- [**task<T> Usage Guide**](docs/task_usage.md) — comprehensive guide to creating, awaiting, and composing tasks
