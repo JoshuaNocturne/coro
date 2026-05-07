@@ -1,10 +1,17 @@
 #pragma once
 
 /// @file thread_pool_scheduler.hpp
-/// thread_pool_scheduler — schedules work onto a fixed-size thread pool.
+/// thread_pool_scheduler — P2300-style scheduler backed by a fixed-size thread
+/// pool.
+///
+/// Design (P2300 pure-lazy):
+///   - Only exposes schedule(), returning a void sender that completes on a
+///     worker thread.
+///   - No eager execute/run interface. All work is lazily described.
+///   - To run a coroutine on the pool, co_await schedule() inside it.
 
-#include <atomic>
 #include <condition_variable>
+#include <coroutine>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -79,6 +86,26 @@ public:
       requires receiver_of<R>
     auto connect(R&& r) const& {
       return op_state<std::remove_cvref_t<R>>(std::forward<R>(r), pool_);
+    }
+
+    // Custom co_await: guarantees the coroutine resumes on a worker thread.
+    auto operator co_await() && noexcept {
+      struct awaiter {
+        std::shared_ptr<pool_state> pool_;
+        std::coroutine_handle<> awaiting_{};
+
+        bool await_ready() const noexcept { return false; }
+
+        auto await_suspend(std::coroutine_handle<> h) noexcept
+            -> std::coroutine_handle<> {
+          awaiting_ = h;
+          pool_->enqueue([this]() { awaiting_.resume(); });
+          return std::noop_coroutine();
+        }
+
+        void await_resume() const noexcept {}
+      };
+      return awaiter{std::move(pool_)};
     }
 
   private:
