@@ -87,6 +87,20 @@ task<void> handler() {
 }
 ```
 
+### `co_await` 任意 sender
+
+`task<T>` 有自己的 `operator co_await`，但库还提供了**通用桥接**，让**任意 sender** 都可以在协程中直接 `co_await`。这意味着你可以直接 `co_await` 调度器 sender、`then` 流水线，甚至 `when_all` 组合：
+
+```cpp
+task<int> on_pool(thread_pool_scheduler& pool) {
+    // co_await 调度器 sender —— 在工作线程上恢复
+    co_await pool.schedule();
+    co_return 42;
+}
+```
+
+通用 `sender_awaiter` 使用无竞态的三态原子 CAS 协议，保证恰好只有一个恢复路径，消除了双重恢复的未定义行为。调度器 sender（如 `thread_pool_scheduler::sender`）提供自定义的 `operator co_await`，以实现优化的线程保证恢复。
+
 ---
 
 ## 使用 `sync_wait` 运行 task

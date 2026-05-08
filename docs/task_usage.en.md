@@ -87,6 +87,20 @@ task<void> handler() {
 }
 ```
 
+### `co_await` any sender
+
+`task<T>` has its own `operator co_await`, but the library also provides a **generic bridge** that makes **any sender** awaitable inside coroutines. This means you can `co_await` scheduler senders, `then` pipelines, and even `when_all` compositions directly:
+
+```cpp
+task<int> on_pool(thread_pool_scheduler& pool) {
+    // co_await a scheduler sender — resumes on a worker thread
+    co_await pool.schedule();
+    co_return 42;
+}
+```
+
+The generic `sender_awaiter` uses a race-free three-state atomic CAS protocol to guarantee exactly one resume path, eliminating double-resume UB. Scheduler senders (e.g. `thread_pool_scheduler::sender`) provide custom `operator co_await` for optimized thread-guaranteed resumption.
+
 ---
 
 ## Running tasks with `sync_wait`

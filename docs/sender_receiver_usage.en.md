@@ -304,3 +304,59 @@ Key points:
 | `<coro/thread_pool_scheduler.hpp>` | `thread_pool_scheduler` |
 | `<coro/io_uring_scheduler.hpp>` | `io_uring_scheduler` |
 | `<coro/coro.hpp>` | Includes all headers above |
+
+---
+
+## 10. `sender_awaiter` — Bridging Senders into Coroutines
+
+While `task<T>` has its own `operator co_await`, the library provides a **generic bridge** (`sender_awaiter`) that makes **any sender** directly awaitable inside coroutines. This is implemented via ADL `operator co_await` in `<coro/sender.hpp>`.
+
+### 10.1 Usage
+
+Any sender can be `co_await`ed inside a coroutine:
+
+```cpp
+task<int> pipeline() {
+    // Await a scheduler sender — resumes on the scheduler's context
+    co_await pool.schedule();
+
+    // Await a then pipeline
+    int x = co_await some_sender() | then([](int v) { return v * 2; });
+
+    // Await when_all
+    auto [a, b] = co_await when_all(sender_a(), sender_b());
+    co_return a + b;
+}
+```
+
+The generic `operator co_await` is excluded for types that already define their own (e.g. `task<T>`, `thread_pool_scheduler::sender`).
+
+### 10.2 Three-state atomic CAS protocol
+
+`sender_awaiter` uses a race-free protocol to avoid double-resume UB (P2583R0):
+
+| State | Value | Meaning |
+|-------|-------|---------|
+| `initial` | 0 | `await_suspend` is still running |
+| `suspended` | 1 | `await_suspend` returned `noop_coroutine()`, coroutine is suspended |
+| `completed` | 2 | The receiver has invoked a completion signal |
+
+**The protocol:**
+
+1. **`await_suspend`**: Atomically CAS `0→1`. If it fails (state is already `2`), the receiver completed first — return the awaiting handle for symmetric transfer.
+2. **`receiver`**: Atomically CAS `0→2`. If it fails (state is already `1`), the coroutine is already suspended — call `resume()` on the completing thread.
+
+Exactly one path resumes the coroutine. The `acq_rel` / `acquire` memory ordering ensures the non-atomic `continuation_` write is visible to the resuming thread.
+
+### 10.3 Custom `operator co_await` for scheduler senders
+
+Scheduler senders can (and should) provide their own `operator co_await` for optimized or semantically-guaranteed behavior:
+
+- **`inline_scheduler::sender`**: Returns `await_ready() = true`, bypassing suspension entirely.
+- **`thread_pool_scheduler::sender`**: Enqueues `resume()` directly to the pool and returns `noop_coroutine()`, guaranteeing the coroutine resumes on a worker thread rather than symmetric-transferring back to the caller.
+
+Custom awaiters take precedence over the generic `sender_awaiter` thanks to the `requires (! ... operator co_await())` constraint on the ADL version.
+
+### 10.4 `set_stopped` handling
+
+If a sender calls `set_stopped()` (cancellation), `sender_awaiter` stores a `stopped_` flag. When `await_resume()` runs, it throws `std::runtime_error("sender stopped")` so the cancellation signal is not silently ignored.

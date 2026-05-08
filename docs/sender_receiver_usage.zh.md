@@ -1,6 +1,6 @@
 # Sender / Receiver 协议参考
 
-本文档从**底层协议视角**介绍 `coro` 库的 Sender/Receiver 模型。如果你只是想用协程写异步代码，请先看 [`task_usage.md`](task_usage.md)。本文档面向需要**实现自定义 sender/receiver** 或深入理解协议机制的用户。
+本文档从**底层协议视角**介绍 `coro` 库的 Sender/Receiver 模型。如果你只是想用协程写异步代码，请先看 [`task_usage.zh.md`](task_usage.zh.md)。本文档面向需要**实现自定义 sender/receiver** 或深入理解协议机制的用户。
 
 ---
 
@@ -273,7 +273,7 @@ auto sync_wait(Sender&& s) -> sender_value_t<Sender> {
 - `start(op)` resume 协程
 - 协程 `co_return` 后，在 `final_suspend` 中调用 receiver 的 `set_value`
 
-> 协程的 `co_await` 路径与 Sender/Receiver 路径是两个独立的入口，但最终都到达同一个 `promise_type` 存储结果。详见 [`task_usage.md`](task_usage.md) 中的执行流程图。
+> 协程的 `co_await` 路径与 Sender/Receiver 路径是两个独立的入口，但最终都到达同一个 `promise_type` 存储结果。详见 [`task_usage.zh.md`](task_usage.zh.md) 中的执行流程图。
 
 ---
 
@@ -304,3 +304,59 @@ auto sync_wait(Sender&& s) -> sender_value_t<Sender> {
 | `<coro/thread_pool_scheduler.hpp>` | `thread_pool_scheduler` |
 | `<coro/io_uring_scheduler.hpp>` | `io_uring_scheduler` |
 | `<coro/coro.hpp>` | 包含以上所有头文件 |
+
+---
+
+## 10. `sender_awaiter` —— 将 Sender 桥接到协程
+
+`task<T>` 有自己的 `operator co_await`，但库还提供了**通用桥接**（`sender_awaiter`），让**任意 sender** 都能在协程中直接 `co_await`。这通过 `<coro/sender.hpp>` 中的 ADL `operator co_await` 实现。
+
+### 10.1 用法
+
+任意 sender 都可以在协程中 `co_await`：
+
+```cpp
+task<int> pipeline() {
+    // 等待调度器 sender —— 在调度器的上下文上恢复
+    co_await pool.schedule();
+
+    // 等待 then 流水线
+    int x = co_await some_sender() | then([](int v) { return v * 2; });
+
+    // 等待 when_all
+    auto [a, b] = co_await when_all(sender_a(), sender_b());
+    co_return a + b;
+}
+```
+
+通用 `operator co_await` 对已定义自己版本的类型（如 `task<T>`、`thread_pool_scheduler::sender`）自动排除。
+
+### 10.2 三态原子 CAS 协议
+
+`sender_awaiter` 使用无竞态协议避免双重恢复的未定义行为（P2583R0）：
+
+| 状态 | 值 | 含义 |
+|------|-----|------|
+| `initial` | 0 | `await_suspend` 仍在执行 |
+| `suspended` | 1 | `await_suspend` 已返回 `noop_coroutine()`，协程已挂起 |
+| `completed` | 2 | receiver 已调用完成信号 |
+
+**协议流程：**
+
+1. **`await_suspend`**：原子 CAS `0→1`。若失败（状态已是 `2`），说明 receiver 先完成了 —— 返回 awaiting handle 进行对称转移。
+2. **`receiver`**：原子 CAS `0→2`。若失败（状态已是 `1`），说明协程已挂起 —— 在完成线程上调用 `resume()`。
+
+恰好只有一个路径恢复协程。`acq_rel` / `acquire` 内存序保证非原子的 `continuation_` 写操作对恢复线程可见。
+
+### 10.3 调度器 sender 的自定义 `operator co_await`
+
+调度器 sender 可以（也应该）提供自己的 `operator co_await`，以实现优化或语义保证：
+
+- **`inline_scheduler::sender`**：返回 `await_ready() = true`，完全绕过挂起。
+- **`thread_pool_scheduler::sender`**：直接将 `resume()` 投递到线程池并返回 `noop_coroutine()`，保证协程在工作线程上恢复，而非对称转移回调用者线程。
+
+自定义 awaiter 优先于通用 `sender_awaiter`，这得益于 ADL 版本上的 `requires (! ... operator co_await())` 约束。
+
+### 10.4 `set_stopped` 处理
+
+若 sender 调用 `set_stopped()`（取消），`sender_awaiter` 会存储 `stopped_` 标志。当 `await_resume()` 执行时，抛出 `std::runtime_error("sender stopped")`，确保取消信号不会被静默忽略。
