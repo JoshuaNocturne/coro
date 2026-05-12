@@ -11,19 +11,22 @@ using namespace coro;
 //  thread_pool_scheduler — basic
 // ---------------------------------------------------------------------------
 
-TEST_CASE("thread_pool_scheduler schedule completes", "[scheduler][thread_pool]") {
+TEST_CASE("thread_pool_scheduler schedule completes",
+          "[scheduler][thread_pool]") {
   thread_pool_scheduler pool(2);
   sync_wait(pool.schedule());
 }
 
-TEST_CASE("thread_pool_scheduler schedule with then", "[scheduler][thread_pool]") {
+TEST_CASE("thread_pool_scheduler schedule with then",
+          "[scheduler][thread_pool]") {
   thread_pool_scheduler pool(2);
   auto t = pool.schedule() | then([] { return 42; });
   auto result = sync_wait(std::move(t));
   REQUIRE(result == 42);
 }
 
-TEST_CASE("thread_pool_scheduler runs on worker thread", "[scheduler][thread_pool]") {
+TEST_CASE("thread_pool_scheduler runs on worker thread",
+          "[scheduler][thread_pool]") {
   thread_pool_scheduler pool(2);
   auto t = pool.schedule() | then([] {
              return std::hash<std::thread::id>{}(std::this_thread::get_id());
@@ -46,7 +49,8 @@ TEST_CASE("thread_pool_scheduler multiple tasks", "[scheduler][thread_pool]") {
   REQUIRE(r3 == 3);
 }
 
-TEST_CASE("thread_pool_scheduler with then chaining", "[scheduler][thread_pool]") {
+TEST_CASE("thread_pool_scheduler with then chaining",
+          "[scheduler][thread_pool]") {
   thread_pool_scheduler pool(2);
   auto t = pool.schedule() | then([] { return 10; }) |
            then([](int x) { return x + 20; });
