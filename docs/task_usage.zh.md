@@ -310,8 +310,8 @@ auto [a, b] = sync_wait(std::move(t));
 | 调度器 | 行为 |
 |---|---|
 | `inline_scheduler` | `schedule()` 在当前线程同步完成 |
-| `thread_pool_scheduler` | `schedule()` 在线程池的某个工作线程上完成 |
-| `io_uring_scheduler` | `schedule()` 在 io_uring 循环上完成；另外提供 `async_read`/`async_write`/`async_timeout` sender |
+| `thread_pool_scheduler` | `schedule()` 在线程池的某个工作线程上完成；提供 `executor()` 访问器用于 io_uring 集成 |
+| `io_uring_scheduler` | `schedule()` 在 io_uring 循环上完成；另外提供 `async_read`/`async_write`/`async_timeout` sender；支持通过第二个构造函数进行执行器委托 |
 
 ---
 

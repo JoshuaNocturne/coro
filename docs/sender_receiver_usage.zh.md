@@ -213,6 +213,35 @@ auto sender = coro::schedule(uring);     // 在 uring 线程上完成
 auto read_sender = uring.async_read(fd, buf, len);  // 异步读 sender
 ```
 
+#### 执行器委托
+
+默认情况下，完成回调（`on_complete`）在事件循环线程上**内联执行**——即调用 `io_uring_wait_cqe` 的同一线程。这对于轻量工作没问题，但如果协程恢复开销较大（例如触发更多异步操作），可能会阻塞 CQE 处理。
+
+`io_uring_scheduler` 支持**执行器**参数，将协程恢复委托给用户指定的执行上下文：
+
+```cpp
+// 将恢复工作委托给线程池
+coro::thread_pool_scheduler pool(4);
+coro::io_uring_scheduler uring(256, pool.executor());
+```
+
+在此配置下，事件循环只处理 CQE——它捕获 `cqe->res`，然后通过执行器分派 `on_complete(result)`。线程池处理所有协程恢复，保持事件循环的响应性。
+
+关键实现细节：
+- `cqe->res` 必须在 `io_uring_cqe_seen` **之前**捕获，因为之后内核可能重用 CQE 槽位
+- 默认执行器为 `&detail::inline_execute`（函数指针，利用 `std::function` 的小缓冲优化），在事件循环线程上内联执行
+- 执行器签名为 `std::function<void(std::function<void()>)>`
+
+构造函数：
+```cpp
+// 默认：完成回调在事件循环线程上内联执行
+io_uring_scheduler(unsigned entries = 256);
+
+// 带执行器：完成回调通过执行器分派
+io_uring_scheduler(unsigned entries,
+                   std::function<void(std::function<void()>)> executor);
+```
+
 > 调度器本身不负责启动 sender。它只是描述一个执行上下文，真正的启动由 `connect` + `start` 完成。
 
 ---
@@ -343,8 +372,24 @@ task<int> pipeline() {
 
 **协议流程：**
 
-1. **`await_suspend`**：原子 CAS `0→1`。若失败（状态已是 `2`），说明 receiver 先完成了 —— 返回 awaiting handle 进行对称转移。
-2. **`receiver`**：原子 CAS `0→2`。若失败（状态已是 `1`），说明协程已挂起 —— 在完成线程上调用 `resume()`。
+1. **`await_suspend`**：原子 CAS `0→1`。若失败（状态已是 `2`），说明 receiver 先完成了 —— 返回 awaiting handle 进行对称转移。不存在 load 再 CAS 的快速路径；仅通过 CAS 判断结果，消除了 load 与 CAS 之间的竞态窗口。
+2. **`receiver`**（通过 `sender_await_complete`）：原子 CAS `0→2`。若失败（状态已是 `1`），说明协程已挂起 —— 在完成线程上调用 `resume()`。
+
+CAS 逻辑被提取为共享的 `sender_await_complete<T>()` 辅助函数，消除 `void` 和非 `void` receiver 特化之间的代码重复：
+
+```cpp
+template<typename T>
+inline void sender_await_complete(sender_await_state<T>* state) {
+  int expected = state_initial;
+  if (!state->state_.compare_exchange_strong(expected, state_completed,
+                                             std::memory_order_acq_rel,
+                                             std::memory_order_acquire)) {
+    if (expected == state_suspended) {
+      state->continuation_.resume();
+    }
+  }
+}
+```
 
 恰好只有一个路径恢复协程。`acq_rel` / `acquire` 内存序保证非原子的 `continuation_` 写操作对恢复线程可见。
 
@@ -354,6 +399,7 @@ task<int> pipeline() {
 
 - **`inline_scheduler::sender`**：返回 `await_ready() = true`，完全绕过挂起。
 - **`thread_pool_scheduler::sender`**：直接将 `resume()` 投递到线程池并返回 `noop_coroutine()`，保证协程在工作线程上恢复，而非对称转移回调用者线程。
+- **`io_uring_scheduler::sender`**（以及 `read_sender`/`write_sender`/`timeout_sender`）：**不**提供自定义 `operator co_await`，回退到通用 `sender_awaiter`，使用三态 CAS 协议。当 `io_uring_scheduler` 配置了执行器时，`on_complete` 回调（调用 `set_value`/`set_error`）通过执行器分派，因此协程恢复发生在执行器的线程上而非事件循环线程上。
 
 自定义 awaiter 优先于通用 `sender_awaiter`，这得益于 ADL 版本上的 `requires (! ... operator co_await())` 约束。
 

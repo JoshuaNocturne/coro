@@ -310,8 +310,8 @@ auto [a, b] = sync_wait(std::move(t));
 | Scheduler | Behavior |
 |---|---|
 | `inline_scheduler` | `schedule()` completes synchronously on the current thread |
-| `thread_pool_scheduler` | `schedule()` completes on a worker thread from the pool |
-| `io_uring_scheduler` | `schedule()` completes on the io_uring loop; also provides `async_read`/`async_write`/`async_timeout` senders |
+| `thread_pool_scheduler` | `schedule()` completes on a worker thread from the pool; provides `executor()` accessor for io_uring integration |
+| `io_uring_scheduler` | `schedule()` completes on the io_uring loop; also provides `async_read`/`async_write`/`async_timeout` senders; supports executor delegation via second constructor |
 
 ---
 

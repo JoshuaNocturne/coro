@@ -213,6 +213,35 @@ auto sender = coro::schedule(uring);     // Completes on the uring thread
 auto read_sender = uring.async_read(fd, buf, len);  // Async read sender
 ```
 
+#### Executor delegation
+
+By default, completion callbacks (`on_complete`) run **inline on the event loop thread** — the same thread that calls `io_uring_wait_cqe`. This is fine for lightweight work, but if coroutine resumption is expensive (e.g., it triggers more async operations), it can starve CQE processing.
+
+`io_uring_scheduler` supports an **executor** parameter that delegates coroutine resumption to a user-specified execution context:
+
+```cpp
+// Delegate resumption to a thread pool
+coro::thread_pool_scheduler pool(4);
+coro::io_uring_scheduler uring(256, pool.executor());
+```
+
+With this configuration, the event loop only processes CQEs — it captures `cqe->res`, then dispatches `on_complete(result)` via the executor. The thread pool handles all coroutine resumption, keeping the event loop responsive.
+
+Key implementation details:
+- `cqe->res` is captured **before** `io_uring_cqe_seen`, since the kernel may reuse the CQE slot afterward
+- The default executor is `&detail::inline_execute` (a function pointer for `std::function` SBO), which runs the callable inline on the event loop thread
+- The executor signature is `std::function<void(std::function<void()>)>`
+
+Constructors:
+```cpp
+// Default: completions run inline on the event loop thread
+io_uring_scheduler(unsigned entries = 256);
+
+// With executor: completions dispatched to the executor
+io_uring_scheduler(unsigned entries,
+                   std::function<void(std::function<void()>)> executor);
+```
+
 > A scheduler itself is not responsible for starting the sender. It only describes an execution context; actual starting is done by `connect` + `start`.
 
 ---
@@ -343,8 +372,24 @@ The generic `operator co_await` is excluded for types that already define their 
 
 **The protocol:**
 
-1. **`await_suspend`**: Atomically CAS `0→1`. If it fails (state is already `2`), the receiver completed first — return the awaiting handle for symmetric transfer.
-2. **`receiver`**: Atomically CAS `0→2`. If it fails (state is already `1`), the coroutine is already suspended — call `resume()` on the completing thread.
+1. **`await_suspend`**: Atomically CAS `0→1`. If it fails (state is already `2`), the receiver completed first — return the awaiting handle for symmetric transfer. There is no load-then-CAS fast path; the CAS alone determines the outcome, eliminating the race window between load and CAS.
+2. **`receiver`** (via `sender_await_complete`): Atomically CAS `0→2`. If it fails (state is already `1`), the coroutine is already suspended — call `resume()` on the completing thread.
+
+The CAS logic is extracted into a shared `sender_await_complete<T>()` helper to eliminate duplication between the `void` and non-`void` receiver specializations:
+
+```cpp
+template<typename T>
+inline void sender_await_complete(sender_await_state<T>* state) {
+  int expected = state_initial;
+  if (!state->state_.compare_exchange_strong(expected, state_completed,
+                                             std::memory_order_acq_rel,
+                                             std::memory_order_acquire)) {
+    if (expected == state_suspended) {
+      state->continuation_.resume();
+    }
+  }
+}
+```
 
 Exactly one path resumes the coroutine. The `acq_rel` / `acquire` memory ordering ensures the non-atomic `continuation_` write is visible to the resuming thread.
 
@@ -354,6 +399,7 @@ Scheduler senders can (and should) provide their own `operator co_await` for opt
 
 - **`inline_scheduler::sender`**: Returns `await_ready() = true`, bypassing suspension entirely.
 - **`thread_pool_scheduler::sender`**: Enqueues `resume()` directly to the pool and returns `noop_coroutine()`, guaranteeing the coroutine resumes on a worker thread rather than symmetric-transferring back to the caller.
+- **`io_uring_scheduler::sender`** (and `read_sender`/`write_sender`/`timeout_sender`): Does **not** provide a custom `operator co_await`. It falls through to the generic `sender_awaiter`, which uses the three-state CAS protocol. When an executor is configured on the `io_uring_scheduler`, the `on_complete` callback (which calls `set_value`/`set_error`) is dispatched via the executor, so coroutine resumption happens on the executor's thread rather than the event loop thread.
 
 Custom awaiters take precedence over the generic `sender_awaiter` thanks to the `requires (! ... operator co_await())` constraint on the ADL version.
 
