@@ -15,8 +15,8 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
-#include <concepts>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -254,6 +254,13 @@ inline void io_uring_prep_timeout(struct io_uring_sqe* sqe,
   sqe->user_data = 0;
 }
 
+// Default executor: runs the callable inline on the calling thread.
+// Using a function pointer (not a lambda) so std::function's small-buffer
+// optimization avoids heap allocation.
+inline void inline_execute(std::function<void()> f) {
+  f();
+}
+
 } // namespace detail
 
 // ---------------------------------------------------------------------------
@@ -270,7 +277,15 @@ public:
     std::thread event_loop_thread;
     std::atomic<bool> stopping{false};
 
-    explicit ring_state(unsigned entries) {
+    // Executor for coroutine resumption. Dispatches completion callbacks
+    // to a user-specified context (e.g., a thread pool). Default runs inline
+    // on the event loop thread, preserving backward compatibility.
+    std::function<void(std::function<void()>)> executor_;
+
+    explicit ring_state(unsigned entries,
+                        std::function<void(std::function<void()>)> executor =
+                            &detail::inline_execute)
+      : executor_(std::move(executor)) {
       detail::io_uring_ring_init(ring, entries);
     }
 
@@ -298,6 +313,13 @@ public:
 
   explicit io_uring_scheduler(unsigned entries = 256)
     : state_(std::make_shared<ring_state>(entries)) {
+    state_->event_loop_thread =
+        std::thread([s = state_] { s->run_event_loop(); });
+  }
+
+  io_uring_scheduler(unsigned entries,
+                     std::function<void(std::function<void()>)> executor)
+    : state_(std::make_shared<ring_state>(entries, std::move(executor))) {
     state_->event_loop_thread =
         std::thread([s = state_] { s->run_event_loop(); });
   }
@@ -740,7 +762,10 @@ inline void io_uring_scheduler::ring_state::run_event_loop() {
 
     auto* op = reinterpret_cast<op_state_base*>(cqe->user_data);
     if (op) {
-      op->on_complete(cqe->res);
+      // Capture the result before cqe_seen — after that the kernel may
+      // reuse the CQE slot, so cqe->res would be invalid.
+      int result = cqe->res;
+      executor_([op, result]() noexcept { op->on_complete(result); });
     }
 
     detail::io_uring_cqe_seen(ring, cqe);

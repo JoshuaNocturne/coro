@@ -94,7 +94,9 @@ public:
         std::shared_ptr<pool_state> pool_;
         std::coroutine_handle<> awaiting_{};
 
-        bool await_ready() const noexcept { return false; }
+        bool await_ready() const noexcept {
+          return false;
+        }
 
         auto await_suspend(std::coroutine_handle<> h) noexcept
             -> std::coroutine_handle<> {
@@ -119,6 +121,14 @@ public:
 
   auto schedule() const noexcept -> sender {
     return sender(state_);
+  }
+
+  // -- executor() ------------------------------------------------------------
+
+  /// Returns a callable that enqueues work onto this pool.
+  /// Suitable for passing as an executor to io_uring_scheduler.
+  auto executor() const -> std::function<void(std::function<void()>)> {
+    return [s = state_](std::function<void()> f) { s->enqueue(std::move(f)); };
   }
 
 private:
